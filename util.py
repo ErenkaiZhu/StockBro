@@ -12,6 +12,12 @@ TOTAL_SESSION = DEFAULT_CONFIG.sessions_per_day
 STOCK_A_INITIAL_PRICE = DEFAULT_CONFIG.stock_a_initial_price
 STOCK_B_INITIAL_PRICE = DEFAULT_CONFIG.stock_b_initial_price
 
+TRANSACTION_FEE_RATE = DEFAULT_CONFIG.market.transaction_fee_rate
+SLIPPAGE_RATE = DEFAULT_CONFIG.market.slippage_rate
+DAILY_PRICE_LIMIT_PCT = DEFAULT_CONFIG.market.daily_price_limit_pct
+MAX_FILL_PER_PRICE_LEVEL = DEFAULT_CONFIG.market.max_fill_per_price_level
+ORDER_TTL_SESSIONS = DEFAULT_CONFIG.market.order_ttl_sessions
+
 MAX_INITIAL_PROPERTY = DEFAULT_CONFIG.max_initial_property
 MIN_INITIAL_PROPERTY = DEFAULT_CONFIG.min_initial_property
 

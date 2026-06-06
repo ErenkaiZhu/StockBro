@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import random
+from typing import Callable, Optional
 
 from config import SimulationConfig
 from llm_client import LLMClient
@@ -14,6 +15,12 @@ from prompt.agent_prompt import (
     render_post_message_prompt,
     render_stock_prompt,
     render_stock_retry_prompt,
+)
+from schemas import (
+    FORUM_MESSAGE_SCHEMA,
+    LOAN_DECISION_SCHEMA,
+    NEXT_DAY_ESTIMATE_SCHEMA,
+    STOCK_ACTION_SCHEMA,
 )
 from secretary import Secretary
 from stock import Stock
@@ -69,11 +76,13 @@ class Agent:
         secretary: Secretary,
         llm_client: LLMClient,
         config: SimulationConfig,
+        trace_recorder: Optional[Callable[[str, dict], None]] = None,
     ):
         self.order = order
         self.secretary = secretary
         self.llm_client = llm_client
         self.config = config
+        self.trace_recorder = trace_recorder
         self.character = random.choice([
             "Conservative",
             "Aggressive",
@@ -116,25 +125,25 @@ class Agent:
             return self.stock_b_amount
         raise ValueError(f"Unknown stock name: {stock_name}")
 
-    def can_buy(self, amount: int, price: float) -> bool:
-        return not self.quit and amount > 0 and self.cash >= amount * price
+    def can_buy(self, amount: int, price: float, fee_rate: float = 0.0) -> bool:
+        return not self.quit and amount > 0 and self.cash >= amount * price * (1 + fee_rate)
 
     def can_sell(self, stock_name: str, amount: int) -> bool:
         return not self.quit and amount > 0 and self.holding(stock_name) >= amount
 
-    def buy_stock(self, stock_name: str, amount: int, price: float) -> bool:
-        if not self.can_buy(amount, price) or stock_name not in {"A", "B"}:
+    def buy_stock(self, stock_name: str, amount: int, price: float, fee_rate: float = 0.0) -> bool:
+        if not self.can_buy(amount, price, fee_rate) or stock_name not in {"A", "B"}:
             log.logger.warning("ILLEGAL STOCK BUY BEHAVIOR: agent=%s cash=%s", self.order, self.cash)
             return False
 
-        self.cash -= amount * price
+        self.cash -= amount * price * (1 + fee_rate)
         if stock_name == "A":
             self.stock_a_amount += amount
         else:
             self.stock_b_amount += amount
         return True
 
-    def sell_stock(self, stock_name: str, amount: int, price: float) -> bool:
+    def sell_stock(self, stock_name: str, amount: int, price: float, fee_rate: float = 0.0) -> bool:
         if not self.can_sell(stock_name, amount):
             log.logger.warning(
                 "ILLEGAL STOCK SELL BEHAVIOR: agent=%s stock=%s holding=%s amount=%s",
@@ -149,7 +158,7 @@ class Agent:
             self.stock_a_amount -= amount
         else:
             self.stock_b_amount -= amount
-        self.cash += amount * price
+        self.cash += amount * price * (1 - fee_rate)
         return True
 
     def plan_loan(
@@ -180,7 +189,7 @@ class Agent:
             stock_b_price=stock_b_price,
             last_day_forum_message=last_day_forum_message,
         )
-        resp = self._ask(prompt)
+        resp = self._ask(prompt, schema=LOAN_DECISION_SCHEMA, decision_type="loan")
         if not resp:
             return DEFAULT_NO_LOAN.copy()
 
@@ -191,7 +200,11 @@ class Agent:
             if retry_count > 3:
                 log.logger.warning("Loan JSON retry limit exceeded. Agent %s skips loan.", self.order)
                 return DEFAULT_NO_LOAN.copy()
-            resp = self._ask(render_loan_retry_prompt(fail_response))
+            resp = self._ask(
+                render_loan_retry_prompt(fail_response),
+                schema=LOAN_DECISION_SCHEMA,
+                decision_type="loan_retry",
+            )
             if not resp:
                 return DEFAULT_NO_LOAN.copy()
             format_check, fail_response, loan = self.secretary.check_loan(resp, max_loan)
@@ -237,8 +250,17 @@ class Agent:
             stock_a_report=stock_a_report,
             stock_b_report=stock_b_report,
             include_background=session == 1,
+            market_rules={
+                "transaction_fee_rate": self.config.market.transaction_fee_rate,
+                "slippage_rate": self.config.market.slippage_rate,
+                "daily_price_limit_pct": self.config.market.daily_price_limit_pct,
+                "max_fill_per_price_level": self.config.market.max_fill_per_price_level,
+                "order_ttl_sessions": self.config.market.order_ttl_sessions,
+                "stock_a_price_bounds": stock_a.price_bounds(self.config.market.daily_price_limit_pct),
+                "stock_b_price_bounds": stock_b.price_bounds(self.config.market.daily_price_limit_pct),
+            },
         )
-        resp = self._ask(prompt)
+        resp = self._ask(prompt, schema=STOCK_ACTION_SCHEMA, decision_type="stock_action")
         if not resp:
             return DEFAULT_NO_ACTION.copy()
 
@@ -256,7 +278,11 @@ class Agent:
             if retry_count > 3:
                 log.logger.warning("Action JSON retry limit exceeded. Agent %s skips action.", self.order)
                 return DEFAULT_NO_ACTION.copy()
-            resp = self._ask(render_stock_retry_prompt(fail_response))
+            resp = self._ask(
+                render_stock_retry_prompt(fail_response),
+                schema=STOCK_ACTION_SCHEMA,
+                decision_type="stock_action_retry",
+            )
             if not resp:
                 return DEFAULT_NO_ACTION.copy()
             format_check, fail_response, action = self.secretary.check_action(
@@ -321,13 +347,25 @@ class Agent:
     def post_message(self) -> str:
         if self.quit:
             return ""
-        return self._ask(render_post_message_prompt())
+        resp = self._ask(
+            render_post_message_prompt(),
+            schema=FORUM_MESSAGE_SCHEMA,
+            decision_type="forum_message",
+        )
+        format_check, _, message = self.secretary.check_message(resp)
+        if format_check:
+            return message["message"]
+        return resp
 
     def next_day_estimate(self) -> dict:
         if self.quit:
             return DEFAULT_NO_ESTIMATE.copy()
 
-        resp = self._ask(render_next_day_estimate_prompt())
+        resp = self._ask(
+            render_next_day_estimate_prompt(),
+            schema=NEXT_DAY_ESTIMATE_SCHEMA,
+            decision_type="next_day_estimate",
+        )
         if not resp:
             return DEFAULT_NO_ESTIMATE.copy()
 
@@ -338,15 +376,41 @@ class Agent:
             if retry_count > 3:
                 log.logger.warning("Estimate JSON retry limit exceeded. Agent %s uses no-action estimate.", self.order)
                 return DEFAULT_NO_ESTIMATE.copy()
-            resp = self._ask(render_next_day_estimate_retry_prompt(fail_response))
+            resp = self._ask(
+                render_next_day_estimate_retry_prompt(fail_response),
+                schema=NEXT_DAY_ESTIMATE_SCHEMA,
+                decision_type="next_day_estimate_retry",
+            )
             if not resp:
                 return DEFAULT_NO_ESTIMATE.copy()
             format_check, fail_response, estimate = self.secretary.check_estimate(resp)
         return estimate
 
-    def _ask(self, prompt: str, temperature: float = 1.0) -> str:
-        response = self.llm_client.complete(self.chat_history, prompt, temperature=temperature)
+    def _ask(
+        self,
+        prompt: str,
+        temperature: float = 1.0,
+        schema: Optional[dict] = None,
+        decision_type: str = "unknown",
+    ) -> str:
+        response = self.llm_client.complete(
+            self.chat_history,
+            prompt,
+            temperature=temperature,
+            schema=schema,
+        )
         if response:
             self.chat_history.append({"role": "user", "content": prompt})
             self.chat_history.append({"role": "assistant", "content": response})
+        if self.trace_recorder is not None:
+            self.trace_recorder(
+                "llm_response",
+                {
+                    "agent": self.order,
+                    "decision_type": decision_type,
+                    "schema": schema["name"] if schema is not None else None,
+                    "prompt": prompt,
+                    "response": response,
+                },
+            )
         return response

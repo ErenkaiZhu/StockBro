@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Union
 import csv
+import json
 
 try:
     import pandas as pd
@@ -11,7 +12,19 @@ except ImportError:
 
 
 class SimulationRecorder:
-    trade_columns = ["交易日", "交易阶段", "股票类型", "买入交易员", "卖出交易员", "交易数量", "交易价格"]
+    trade_columns = [
+        "交易日",
+        "交易阶段",
+        "股票类型",
+        "买入交易员",
+        "卖出交易员",
+        "交易数量",
+        "交易价格",
+        "成交额",
+        "买方手续费",
+        "卖方手续费",
+        "滑点",
+    ]
     stock_columns = ["交易日", "第几个交易阶段", "阶段结束后股票A价格", "阶段结束后股票B价格"]
     agent_day_columns = [
         "交易员",
@@ -45,6 +58,7 @@ class SimulationRecorder:
         self.stock_rows: list[list] = []
         self.agent_day_rows: list[list] = []
         self.agent_session_rows: list[list] = []
+        self.trace_events: list[dict] = []
 
     def record_trade(
         self,
@@ -55,8 +69,24 @@ class SimulationRecorder:
         seller: int,
         amount: int,
         price: float,
+        gross_value: float = 0.0,
+        buyer_fee: float = 0.0,
+        seller_fee: float = 0.0,
+        slippage: float = 0.0,
     ) -> None:
-        self.trade_rows.append([date, session, stock, buyer, seller, amount, price])
+        self.trade_rows.append([
+            date,
+            session,
+            stock,
+            buyer,
+            seller,
+            amount,
+            price,
+            gross_value,
+            buyer_fee,
+            seller_fee,
+            slippage,
+        ])
 
     def record_stock(
         self,
@@ -129,6 +159,14 @@ class SimulationRecorder:
             price,
         ])
 
+    def record_trace(self, event_type: str, payload: dict) -> None:
+        event = {
+            "sequence": len(self.trace_events) + 1,
+            "event_type": event_type,
+        }
+        event.update(payload)
+        self.trace_events.append(event)
+
     def flush(self) -> None:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self._write_table("trades", self.trade_columns, self.trade_rows)
@@ -139,6 +177,7 @@ class SimulationRecorder:
             self.agent_session_columns,
             self.agent_session_rows,
         )
+        self._write_jsonl("trace.jsonl", self.trace_events)
 
     def _write_table(self, stem: str, columns: list[str], rows: list[list]) -> None:
         if pd is not None:
@@ -150,3 +189,8 @@ class SimulationRecorder:
             writer = csv.writer(csv_file)
             writer.writerow(columns)
             writer.writerows(rows)
+
+    def _write_jsonl(self, filename: str, events: list[dict]) -> None:
+        with (self.output_dir / filename).open("w", encoding="utf-8") as jsonl_file:
+            for event in events:
+                jsonl_file.write(json.dumps(event, ensure_ascii=False, default=str) + "\n")

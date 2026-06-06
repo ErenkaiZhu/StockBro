@@ -13,6 +13,16 @@ class SpecialEvent:
 
 
 @dataclass(frozen=True)
+class MarketConfig:
+    transaction_fee_rate: float = 0.001
+    slippage_rate: float = 0.0005
+    daily_price_limit_pct: float = 0.10
+    max_fill_per_price_level: int = 10_000
+    order_ttl_sessions: int = 3
+    order_book_depth_levels: int = 5
+
+
+@dataclass(frozen=True)
 class SimulationConfig:
     model_name: str = "gemini-pro"
     agents_num: int = 50
@@ -23,6 +33,7 @@ class SimulationConfig:
 
     stock_a_initial_price: float = 30.0
     stock_b_initial_price: float = 40.0
+    market: MarketConfig = field(default_factory=MarketConfig)
 
     max_initial_property: float = 5_000_000.0
     min_initial_property: float = 100_000.0

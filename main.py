@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import random
+from dataclasses import replace
 from pathlib import Path
 
 from agent import Agent
@@ -23,7 +24,12 @@ def simulation(config: SimulationConfig) -> None:
 
     secretary = Secretary()
     recorder = SimulationRecorder(config.output_dir)
-    matching_engine = MatchingEngine(recorder.record_trade)
+    matching_engine = MatchingEngine(
+        recorder.record_trade,
+        market_config=config.market,
+        trace_recorder=recorder.record_trace,
+        sessions_per_day=config.sessions_per_day,
+    )
 
     stock_a = Stock("A", config.stock_a_initial_price)
     stock_b = Stock("B", config.stock_b_initial_price)
@@ -44,6 +50,7 @@ def simulation(config: SimulationConfig) -> None:
             secretary=secretary,
             llm_client=llm_client,
             config=config,
+            trace_recorder=recorder.record_trace,
         )
         for i in range(config.agents_num)
     ]
@@ -56,8 +63,16 @@ def simulation(config: SimulationConfig) -> None:
     try:
         for date in range(1, config.total_days + 1):
             log.logger.debug("--------DAY %s---------", date)
-            for order_book in stock_books.values():
-                order_book.clear()
+            stock_a.start_day()
+            stock_b.start_day()
+            recorder.record_trace(
+                "day_started",
+                {
+                    "date": date,
+                    "stock_a_open": stock_a.price,
+                    "stock_b_open": stock_b.price,
+                },
+            )
 
             for agent in agents[:]:
                 agent.reset_daily_chat()
@@ -86,6 +101,9 @@ def simulation(config: SimulationConfig) -> None:
 
             for session in range(1, config.sessions_per_day + 1):
                 log.logger.debug("SESSION %s", session)
+                for stock_name, order_book in stock_books.items():
+                    matching_engine.expire_orders(order_book, date=date, session=session, stock_name=stock_name)
+
                 session_agents = agents[:]
                 random.shuffle(session_agents)
 
@@ -95,8 +113,8 @@ def simulation(config: SimulationConfig) -> None:
                         session,
                         stock_a,
                         stock_b,
-                        stock_books["A"].snapshot(),
-                        stock_books["B"].snapshot(),
+                        stock_books["A"].snapshot(config.market.order_book_depth_levels),
+                        stock_books["B"].snapshot(config.market.order_book_depth_levels),
                     )
                     proper, cash, value_a, value_b = agent.position_values(stock_a.price, stock_b.price)
                     recorder.record_agent_session(
@@ -196,17 +214,33 @@ def parse_args() -> argparse.Namespace:
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="console and file log level",
     )
+    parser.add_argument("--fee-rate", type=float, default=DEFAULT_CONFIG.market.transaction_fee_rate)
+    parser.add_argument("--slippage-rate", type=float, default=DEFAULT_CONFIG.market.slippage_rate)
+    parser.add_argument("--daily-limit-pct", type=float, default=DEFAULT_CONFIG.market.daily_price_limit_pct)
+    parser.add_argument("--max-fill-per-level", type=int, default=DEFAULT_CONFIG.market.max_fill_per_price_level)
+    parser.add_argument("--order-ttl-sessions", type=int, default=DEFAULT_CONFIG.market.order_ttl_sessions)
     return parser.parse_args()
 
 
 def config_from_args(args: argparse.Namespace) -> SimulationConfig:
-    return DEFAULT_CONFIG.with_runtime_overrides(
+    config = DEFAULT_CONFIG.with_runtime_overrides(
         model_name=args.model,
         agents_num=args.agents,
         total_days=args.days,
         sessions_per_day=args.sessions,
         output_dir=args.output_dir,
         seed=args.seed,
+    )
+    return replace(
+        config,
+        market=replace(
+            config.market,
+            transaction_fee_rate=args.fee_rate,
+            slippage_rate=args.slippage_rate,
+            daily_price_limit_pct=args.daily_limit_pct,
+            max_fill_per_price_level=args.max_fill_per_level,
+            order_ttl_sessions=args.order_ttl_sessions,
+        ),
     )
 
 

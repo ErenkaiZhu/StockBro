@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import time
 from typing import Iterable, Optional
@@ -48,15 +49,16 @@ class LLMClient:
         prompt: str,
         *,
         temperature: float = 1.0,
+        schema: Optional[dict] = None,
     ) -> str:
         if self.provider == "mock":
-            return self._mock_response(prompt)
+            return self._mock_response(prompt, schema)
 
         for attempt in range(1, self.max_retries + 1):
             try:
                 if self.provider == "gemini":
-                    return self._complete_gemini(chat_history, prompt, temperature)
-                return self._complete_openai(chat_history, prompt, temperature)
+                    return self._complete_gemini(chat_history, prompt, temperature, schema)
+                return self._complete_openai(chat_history, prompt, temperature, schema)
             except Exception as exc:
                 log.logger.warning(
                     "%s api retry %s/%s: %s",
@@ -76,6 +78,7 @@ class LLMClient:
         chat_history: Iterable[dict[str, str]],
         prompt: str,
         temperature: float,
+        schema: Optional[dict],
     ) -> str:
         import openai
 
@@ -85,11 +88,28 @@ class LLMClient:
             for message in chat_history
         ]
         messages.append({"role": "user", "content": prompt})
-        response = client.chat.completions.create(
-            model=self.model_name,
-            messages=messages,
-            temperature=temperature,
-        )
+        request = {
+            "model": self.model_name,
+            "messages": messages,
+            "temperature": temperature,
+        }
+        if schema is not None:
+            request["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": schema["name"],
+                    "schema": schema["schema"],
+                    "strict": False,
+                },
+            }
+
+        try:
+            response = client.chat.completions.create(**request)
+        except Exception:
+            if schema is None:
+                raise
+            request["response_format"] = {"type": "json_object"}
+            response = client.chat.completions.create(**request)
         return response.choices[0].message.content or ""
 
     def _complete_gemini(
@@ -97,14 +117,23 @@ class LLMClient:
         chat_history: Iterable[dict[str, str]],
         prompt: str,
         temperature: float,
+        schema: Optional[dict],
     ) -> str:
         import google.generativeai as genai
 
         genai.configure(api_key=self.google_api_key, transport="rest")
-        generation_config = genai.types.GenerationConfig(
-            candidate_count=1,
-            temperature=temperature,
-        )
+        generation_config_kwargs = {
+            "candidate_count": 1,
+            "temperature": temperature,
+        }
+        if schema is not None:
+            generation_config_kwargs["response_mime_type"] = "application/json"
+            generation_config_kwargs["response_schema"] = schema["schema"]
+        try:
+            generation_config = genai.types.GenerationConfig(**generation_config_kwargs)
+        except TypeError:
+            generation_config_kwargs.pop("response_schema", None)
+            generation_config = genai.types.GenerationConfig(**generation_config_kwargs)
         model = genai.GenerativeModel(self.model_name)
         contents = []
         for message in chat_history:
@@ -118,7 +147,24 @@ class LLMClient:
         return response.text or ""
 
     @staticmethod
-    def _mock_response(prompt: str) -> str:
+    def _mock_response(prompt: str, schema: Optional[dict] = None) -> str:
+        if schema is not None:
+            schema_name = schema["name"]
+            if schema_name == "forum_message":
+                return json.dumps({"message": "I will stay cautious and wait for clearer market signals."})
+            if schema_name == "next_day_estimate":
+                return json.dumps({
+                    "buy_A": "no",
+                    "buy_B": "no",
+                    "sell_A": "no",
+                    "sell_B": "no",
+                    "loan": "no",
+                })
+            if schema_name == "loan_decision":
+                return json.dumps({"loan": "no"})
+            if schema_name == "stock_action":
+                return json.dumps({"action_type": "no"})
+
         normalized = prompt.lower()
         if "briefly post" in normalized:
             return "I will stay cautious and wait for clearer market signals."

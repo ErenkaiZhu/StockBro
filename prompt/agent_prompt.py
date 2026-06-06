@@ -119,6 +119,7 @@ def render_stock_prompt(
     stock_a_report: Optional[str] = None,
     stock_b_report: Optional[str] = None,
     include_background: bool = False,
+    market_rules: Optional[dict] = None,
 ) -> str:
     background = ""
     if include_background:
@@ -144,6 +145,7 @@ def render_stock_prompt(
         and the stock price of Company B is {stock_b_price}.
         In the current session, stock A orders are {stock_a_deals}.
         Stock B orders are {stock_b_deals}.
+        Market rules are {market_rules}.
 
         ## Your Position
         You hold {stock_a_amount} shares of Company A and {stock_b_amount} shares of Company B.
@@ -183,7 +185,9 @@ def render_post_message_prompt() -> str:
         """
         The current trading day is over. Briefly post your trading thoughts on the forum.
         What you post will be publicly visible to all traders.
-        Return only the forum post content.
+
+        Return exactly one JSON object:
+        {"message": "your short forum post"}
         """
     )
 

@@ -114,6 +114,17 @@ class Secretary:
             parsed_json[key] = value
         return True, "", parsed_json
 
+    def check_message(self, resp: str) -> tuple[bool, str, Optional[dict]]:
+        parsed_json, fail_response = self._extract_json(resp)
+        if parsed_json is None:
+            return False, fail_response, None
+
+        message = parsed_json.get("message")
+        if not isinstance(message, str) or not message.strip():
+            return False, "Key 'message' should be a non-empty string.", None
+        parsed_json["message"] = message.strip()
+        return True, "", parsed_json
+
     @staticmethod
     def _extract_json(resp: str) -> tuple[Optional[dict[str, Any]], str]:
         if not isinstance(resp, str):
