@@ -8,9 +8,6 @@ The project is designed for experiments, not live trading. It gives you a contro
 studying how different model choices, prompts, market rules, and external events change simulated
 investor behavior.
 
-![workflow](fig/workflow.png)
-![schematic](fig/schematic.png)
-
 ## Features
 
 - Multi-agent trader simulation with configurable agent count, trading days, and sessions per day.
