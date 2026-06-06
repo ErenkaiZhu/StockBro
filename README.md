@@ -26,6 +26,8 @@ investor behavior.
 
 ```text
 main.py                 # simulation entrypoint and day/session loop
+web_app.py              # local web console backend
+frontend/               # browser UI for running and inspecting simulations
 agent.py                # trader state and LLM decision methods
 config.py               # simulation parameters, reports, special events
 llm_client.py           # OpenAI/Gemini/mock model adapter
@@ -61,6 +63,18 @@ export GOOGLE_API_KEY=YOUR_GOOGLE_API_KEY
 ```
 
 ## Quick Start
+
+Open the local console:
+
+```bash
+python3 web_app.py
+```
+
+Then visit:
+
+```text
+http://127.0.0.1:8765
+```
 
 Run a no-cost smoke test with the deterministic mock model:
 
@@ -130,6 +144,8 @@ If the spreadsheet dependencies are missing, StockBro falls back to CSV files wi
 - order additions, rejections, and expirations;
 - executed trades with fees and slippage;
 - day-start reference prices.
+
+The web console writes browser-launched runs under `web_runs/`, which is ignored by git.
 
 ## How The Simulation Works
 

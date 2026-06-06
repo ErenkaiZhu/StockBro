@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>StockBro Console</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">SB</div>
+          <div>
+            <h1>StockBro</h1>
+            <p>Simulation Console</p>
+          </div>
+        </div>
+
+        <form id="run-form" class="run-form">
+          <section class="panel">
+            <h2>Model</h2>
+            <label>
+              <span>Model</span>
+              <input name="model" value="mock" autocomplete="off" />
+            </label>
+            <label>
+              <span>Log Level</span>
+              <select name="log_level">
+                <option>WARNING</option>
+                <option>INFO</option>
+                <option>DEBUG</option>
+                <option>ERROR</option>
+              </select>
+            </label>
+          </section>
+
+          <section class="panel">
+            <h2>Run</h2>
+            <div class="form-grid">
+              <label>
+                <span>Agents</span>
+                <input name="agents" type="number" min="1" max="200" value="2" />
+              </label>
+              <label>
+                <span>Days</span>
+                <input name="days" type="number" min="1" max="264" value="1" />
+              </label>
+              <label>
+                <span>Sessions</span>
+                <input name="sessions" type="number" min="1" max="12" value="1" />
+              </label>
+              <label>
+                <span>Seed</span>
+                <input name="seed" type="number" value="42" />
+              </label>
+            </div>
+          </section>
+
+          <section class="panel">
+            <h2>Market</h2>
+            <div class="form-grid">
+              <label>
+                <span>Fee</span>
+                <input name="fee_rate" type="number" min="0" max="0.2" step="0.0001" value="0.001" />
+              </label>
+              <label>
+                <span>Slippage</span>
+                <input name="slippage_rate" type="number" min="0" max="0.2" step="0.0001" value="0.0005" />
+              </label>
+              <label>
+                <span>Limit</span>
+                <input name="daily_limit_pct" type="number" min="0" max="1" step="0.01" value="0.10" />
+              </label>
+              <label>
+                <span>TTL</span>
+                <input name="order_ttl_sessions" type="number" min="1" max="100" value="3" />
+              </label>
+            </div>
+            <label>
+              <span>Max Fill</span>
+              <input name="max_fill_per_level" type="number" min="1" max="1000000" value="10000" />
+            </label>
+          </section>
+
+          <div class="actions">
+            <button type="submit" class="primary">Run</button>
+            <button type="button" id="cancel-button" class="secondary" disabled>Stop</button>
+          </div>
+        </form>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Localhost</p>
+            <h2>Experiment Desk</h2>
+          </div>
+          <button id="refresh-button" class="secondary">Refresh</button>
+        </header>
+
+        <section class="metric-row" aria-label="Run summary">
+          <div class="metric">
+            <span>Status</span>
+            <strong id="status-value">Idle</strong>
+          </div>
+          <div class="metric">
+            <span>Trades</span>
+            <strong id="trades-value">-</strong>
+          </div>
+          <div class="metric">
+            <span>Trace</span>
+            <strong id="trace-value">-</strong>
+          </div>
+          <div class="metric">
+            <span>Duration</span>
+            <strong id="duration-value">-</strong>
+          </div>
+        </section>
+
+        <section class="content-grid">
+          <div class="surface runs-surface">
+            <div class="surface-header">
+              <h3>Runs</h3>
+              <span id="run-count">0</span>
+            </div>
+            <div id="runs-list" class="runs-list"></div>
+          </div>
+
+          <div class="surface detail-surface">
+            <div class="tabs">
+              <button class="tab active" data-tab="overview">Overview</button>
+              <button class="tab" data-tab="trace">Trace</button>
+              <button class="tab" data-tab="files">Files</button>
+              <button class="tab" data-tab="logs">Logs</button>
+            </div>
+
+            <section id="overview-tab" class="tab-panel active">
+              <div class="summary-grid">
+                <div>
+                  <span>Output</span>
+                  <code id="output-dir">-</code>
+                </div>
+                <div>
+                  <span>Last Prices</span>
+                  <code id="last-prices">-</code>
+                </div>
+                <div>
+                  <span>Agent Days</span>
+                  <code id="agent-days">-</code>
+                </div>
+                <div>
+                  <span>Agent Sessions</span>
+                  <code id="agent-sessions">-</code>
+                </div>
+              </div>
+              <pre id="command-view" class="code-block"></pre>
+            </section>
+
+            <section id="trace-tab" class="tab-panel">
+              <div class="trace-tools">
+                <select id="trace-filter">
+                  <option value="">All Events</option>
+                  <option value="llm_response">LLM</option>
+                  <option value="trade_executed">Trades</option>
+                  <option value="order_added">Orders</option>
+                  <option value="order_rejected">Rejected</option>
+                  <option value="order_expired">Expired</option>
+                </select>
+                <button id="trace-refresh" class="secondary">Load</button>
+              </div>
+              <div id="trace-list" class="trace-list"></div>
+            </section>
+
+            <section id="files-tab" class="tab-panel">
+              <div id="files-list" class="files-list"></div>
+            </section>
+
+            <section id="logs-tab" class="tab-panel">
+              <h4>stderr</h4>
+              <pre id="stderr-view" class="code-block"></pre>
+              <h4>stdout</h4>
+              <pre id="stdout-view" class="code-block"></pre>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
